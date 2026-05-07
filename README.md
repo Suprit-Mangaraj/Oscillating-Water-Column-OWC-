@@ -1,0 +1,2 @@
+# Oscillating-Water-Column-OWC-
+A small-scale Oscillating Water Column (OWC) renewable energy prototype developed to demonstrate practical wave energy conversion using embedded systems, automated wave generation, sensor integration, and real-time MATLAB-based data acquisition and visualization.
