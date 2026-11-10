@@ -1,0 +1,192 @@
+
+// OSCILLATING WATER COLUMN - ARDUINO UNO
+// Motor control + ultrasonic sensing + serial data output
+
+// Ultrasonic sensor pins
+const int trigPin = 9;
+const int echoPin = 10;
+
+// BTS7960 motor driver pins
+const int RPWM = 5;
+const int LPWM = 6;
+const int REN = 7;
+const int LEN = 8;
+
+// Motor settings
+const int motorSpeed = 150;
+const unsigned long motorInterval = 1500;
+
+// Sensor settings
+const unsigned long sampleInterval = 60;
+float referenceDistance = 0;
+
+// Motor direction control
+bool motorForward = true;
+unsigned long previousMotorTime = 0;
+
+// Sensor timing
+unsigned long previousSampleTime = 0;
+
+// Wave frequency detection
+float previousHeight = 0;
+float peakHeight = 0;
+float waveFrequency = 0;
+
+bool rising = false;
+unsigned long lastPeakTime = 0;
+
+void motorControl() {
+
+  unsigned long currentTime = millis();
+
+  if (currentTime - previousMotorTime >= motorInterval) {
+
+    previousMotorTime = currentTime;
+
+    // Briefly stop before reversing direction
+    analogWrite(RPWM, 0);
+    analogWrite(LPWM, 0);
+    delay(100);
+
+    motorForward = !motorForward;
+  }
+
+  if (motorForward) {
+    analogWrite(RPWM, motorSpeed);
+    analogWrite(LPWM, 0);
+  }
+  else {
+    analogWrite(RPWM, 0);
+    analogWrite(LPWM, motorSpeed);
+  }
+}
+
+float readDistance() {
+
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+
+  digitalWrite(trigPin, LOW);
+
+  unsigned long duration = pulseIn(echoPin, HIGH, 25000);
+
+  if (duration == 0) {
+    return -1;
+  }
+
+  float distance = duration * 0.0343 / 2.0;
+
+  return distance;
+}
+
+void detectWaveFrequency(float height) {
+
+  unsigned long currentTime = millis();
+
+  // Detect rising wave
+  if (height > previousHeight) {
+    if (!rising) {
+      rising = true;
+      peakHeight = height;
+    }
+    else if (height > peakHeight) {
+      peakHeight = height;
+    }
+  }
+
+  // Detect a peak after the water starts falling
+  else if (rising && (peakHeight - height) > 0.3) {
+
+    rising = false;
+
+    if (lastPeakTime != 0) {
+
+      unsigned long period = currentTime - lastPeakTime;
+
+      if (period > 300) {
+        waveFrequency = 1000.0 / period;
+      }
+    }
+
+    lastPeakTime = currentTime;
+  }
+
+  previousHeight = height;
+}
+
+void setup() {
+
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+
+  pinMode(RPWM, OUTPUT);
+  pinMode(LPWM, OUTPUT);
+
+  pinMode(REN, OUTPUT);
+  pinMode(LEN, OUTPUT);
+
+  digitalWrite(REN, HIGH);
+  digitalWrite(LEN, HIGH);
+
+  analogWrite(RPWM, 0);
+  analogWrite(LPWM, 0);
+
+  Serial.begin(115200);
+
+  // Calibrate initial water level
+  float totalDistance = 0;
+  int validReadings = 0;
+
+  for (int i = 0; i < 30; i++) {
+
+    float distance = readDistance();
+
+    if (distance > 0) {
+      totalDistance += distance;
+      validReadings++;
+    }
+
+    delay(100);
+  }
+
+  if (validReadings > 0) {
+    referenceDistance = totalDistance / validReadings;
+  }
+
+  Serial.println("Time,Height,Frequency");
+
+  previousMotorTime = millis();
+  previousSampleTime = millis();
+}
+
+void loop() {
+
+  motorControl();
+
+  unsigned long currentTime = millis();
+
+  if (currentTime - previousSampleTime >= sampleInterval) {
+
+    previousSampleTime = currentTime;
+
+    float distance = readDistance();
+
+    if (distance > 0 && referenceDistance > 0) {
+
+      // Relative water height
+      float height = referenceDistance - distance;
+
+      detectWaveFrequency(height);
+
+      // Send CSV data to MATLAB
+      Serial.print(currentTime);
+      Serial.print(",");
+      Serial.print(height, 2);
+      Serial.print(",");
+      Serial.println(waveFrequency, 3);
+    }
+  }
+}
