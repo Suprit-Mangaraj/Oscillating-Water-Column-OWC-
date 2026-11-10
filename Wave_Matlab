@@ -1,0 +1,96 @@
+
+% OSCILLATING WATER COLUMN - MATLAB DATA ACQUISITION
+
+clc;
+clear;
+close all;
+
+% Serial communication settings
+port = "COM5";       % Change according to Arduino port
+baudRate = 115200;
+
+arduino = serialport(port, baudRate);
+
+configureTerminator(arduino, "LF");
+flush(arduino);
+
+disp("Waiting for Arduino data...");
+
+% Data storage
+timeData = [];
+heightData = [];
+frequencyData = [];
+
+% Start time
+startTime = tic;
+
+% Duration of recording in seconds
+recordDuration = 120;
+
+% Create live plotting window
+figure;
+
+subplot(2,1,1);
+heightPlot = animatedline('LineWidth', 1.5);
+title('Wave Height vs Time');
+xlabel('Time (seconds)');
+ylabel('Wave Height (cm)');
+grid on;
+
+subplot(2,1,2);
+frequencyPlot = animatedline('LineWidth', 1.5);
+title('Wave Frequency vs Time');
+xlabel('Time (seconds)');
+ylabel('Frequency (Hz)');
+grid on;
+
+disp("Recording started...");
+
+while toc(startTime) < recordDuration
+
+    if arduino.NumBytesAvailable > 0
+
+        dataLine = readline(arduino);
+
+        % Convert CSV data into numerical values
+        values = sscanf(dataLine, '%f,%f,%f');
+
+        if numel(values) == 3
+
+            time = values(1) / 1000;
+            height = values(2);
+            frequency = values(3);
+
+            timeData(end+1) = time;
+            heightData(end+1) = height;
+            frequencyData(end+1) = frequency;
+
+            % Update wave height graph
+            subplot(2,1,1);
+            addpoints(heightPlot, timeData(end), height);
+            
+            % Update frequency graph
+            subplot(2,1,2);
+            addpoints(frequencyPlot, timeData(end), frequency);
+
+            drawnow limitrate;
+
+        end
+    end
+end
+
+% Save data into table
+Results = table(timeData', heightData', frequencyData', ...
+    'VariableNames', ...
+    {'Time_ms', 'Wave_Height_cm', 'Wave_Frequency_Hz'});
+
+% Export to Excel
+filename = 'OWC_Wave_Data.xlsx';
+
+writetable(Results, filename);
+
+% Close serial communication
+clear arduino;
+
+disp("Recording completed.");
+disp("Excel file saved successfully.");
